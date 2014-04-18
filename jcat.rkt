@@ -1,7 +1,9 @@
 #!/usr/bin/racket
 #lang racket/base
 
-(require racket/string)
+(require racket/list
+         racket/port
+         racket/string)
 
 #|
 Returns #t if str starts with token, else #f
@@ -12,23 +14,30 @@ Returns #t if str starts with token, else #f
 #|
 Modifies the line as required for concatenating java files
 |#
-(define (process-line line)
-  (string-replace line "public class" "class"))
+(define (process-line line static)
+  (if static
+    (string-replace line "class" "static class")
+    (string-replace line "public class" "class")))
 
 #|
 Cat a java file onto a list of lines and imports
 
 Returns two values, the updated list of lines, and the updated list of imports
 |#
-(define (cat-file file lines imports)
-  (define line (read-line file))
-  (if (eof-object? line)
+(define (cat-file file lines imports static)
+  (define line (cond [(null? file) null]
+                     [(list? file) (begin0 (car file) (set! file (cdr file)))]
+                     [else (read-line file)]))
+  (if (or (null? line) (eof-object? line))
     (values lines imports)
-    (let-values ([(lines imports) (cat-file file lines imports)])
+    (let-values ([(lines imports) (cat-file file lines imports static)])
       (if (or (string-starts-with? line "import")
               (string-starts-with? line "package"))
         (values lines (cons line imports))
-        (values (cons (process-line line) lines) imports)))))
+        (values
+          (cons (if (eq? static 'no-process) line (process-line line static))
+                lines)
+          imports)))))
 
 #|
 Takes a list of lines and a list of imports and displays them to stdout
@@ -41,13 +50,21 @@ Takes a list of lines and a list of imports and displays them to stdout
 Takes a list of java files and returns two values, a list of lines and a list
 of imports
 |#
-(define (files->java-lists files)
+(define (files->java-lists files static)
   (define (fn files lines imports)
     (if (null? files)
       (values lines imports)
-      (let-values ([(lines imports) (cat-file (car files) lines imports)])
+      (let-values ([(lines imports) (cat-file (car files) lines imports static)])
         (fn (cdr files) lines imports))))
-  (fn files null null))
+  (if static
+    (let*-values ([(top bottom)
+                   (splitf-at-right
+                     (port->lines (car files))
+                     (lambda (x) (not (string-starts-with? x "public class"))))]
+                  [(bot-lines bot-imports) (cat-file bottom null null 'no-process)]
+                  [(mid-lines mid-imports) (fn (cdr files) bot-lines bot-imports)])
+      (cat-file top mid-lines mid-imports 'no-process))
+    (fn files null null)))
 
 #|
 Ensure there is only one package declaration in the final output
@@ -76,10 +93,23 @@ FIXME: If the first file has a package line, those that do not are not caught
 
 
 (module* main #f
-  (define files
-    (for/list ([i (current-command-line-arguments)]) (open-input-file i)))
+  (require racket/cmdline)
 
-  (define-values (lines imports) (files->java-lists files))
+  (define static-inner (make-parameter #f))
+  (define filenames
+    (command-line
+      #:program "jcat"
+      #:once-each
+      [("-s" "--static")
+       "Cat classes to be static member classes of the first class"
+       (static-inner #t)]
+      #:args filenames
+      filenames))
+
+  (define files
+    (for/list ([i filenames]) (open-input-file i)))
+
+  (define-values (lines imports) (files->java-lists files (static-inner)))
 
   (let ([imports (handle-package imports)])
     (output-java lines imports)))
