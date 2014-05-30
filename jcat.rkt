@@ -16,7 +16,7 @@ Modifies the line as required for concatenating java files
 |#
 (define (process-line line static)
   (if static
-    (string-replace line "class" "static class")
+    (string-replace line "class " "static class ")
     (string-replace line "public class" "class")))
 
 #|
