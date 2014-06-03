@@ -71,7 +71,7 @@ Ensure there is only one package declaration in the final output
 
 FIXME: If the first file has a package line, those that do not are not caught
 |#
-(define (handle-package imports)
+(define (handle-package imports drop-packages)
   (define package
     (cond [(null? imports) #f]
           [(string-starts-with? (car imports) "package") (car imports)]
@@ -81,7 +81,7 @@ FIXME: If the first file has a package line, those that do not are not caught
     (cond [(null? lst) acc]
           [(not (string-starts-with? (car lst) "package"))
            (fn (cdr lst) (cons (car lst) acc))]
-          [(equal? (car lst) package) (fn (cdr lst) acc)]
+          [(or drop-packages (equal? (car lst) package)) (fn (cdr lst) acc)]
           [else (error 'handle-package
                        "found incompatable packages ~a and ~a"
                        (if package
@@ -95,11 +95,15 @@ FIXME: If the first file has a package line, those that do not are not caught
 (module* main #f
   (require racket/cmdline)
 
+  (define drop-packages (make-parameter #f))
   (define static-inner (make-parameter #f))
   (define filenames
     (command-line
       #:program "jcat"
       #:once-each
+      [("-d" "--drop-packages")
+       "Drop package statements from the final output"
+       (drop-packages)]
       [("-s" "--static")
        "Cat classes to be static member classes of the first class"
        (static-inner #t)]
@@ -111,5 +115,5 @@ FIXME: If the first file has a package line, those that do not are not caught
 
   (define-values (lines imports) (files->java-lists files (static-inner)))
 
-  (let ([imports (handle-package imports)])
+  (let ([imports (handle-package imports drop-packages)])
     (output-java lines imports)))
