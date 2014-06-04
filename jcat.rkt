@@ -74,6 +74,7 @@ FIXME: If the first file has a package line, those that do not are not caught
 (define (handle-package imports drop-packages)
   (define package
     (cond [(null? imports) #f]
+          [drop-packages #f]
           [(string-starts-with? (car imports) "package") (car imports)]
           [else #f]))
 
@@ -91,22 +92,32 @@ FIXME: If the first file has a package line, those that do not are not caught
 
   (if package (cons package (fn (cdr imports) null)) (fn imports null)))
 
+#|
+Returns true if the import should be removed
+|#
+(define (keep-import? import regex)
+  (let ([line (string-join (cdr (string-split import)))])
+    (not (regexp-match? regex line))))
+
 
 (module* main #f
   (require racket/cmdline)
 
   (define drop-packages (make-parameter #f))
+  (define ignore-imports (make-parameter #f))
   (define static-inner (make-parameter #f))
+
   (define filenames
     (command-line
       #:program "jcat"
       #:once-each
-      [("-d" "--drop-packages")
-       "Drop package statements from the final output"
-       (drop-packages)]
-      [("-s" "--static")
-       "Cat classes to be static member classes of the first class"
-       (static-inner #t)]
+      [("-d" "--drop-packages") "Drop package statements from the final output"
+                                (drop-packages #t)]
+      [("-i" "--ignore-imports") regex
+                                 "Ignore imports matching this regex"
+                                 (ignore-imports regex)]
+      [("-s" "--static") "Cat classes to be static member classes of the first class"
+                         (static-inner #t)]
       #:args filenames
       filenames))
 
@@ -115,5 +126,9 @@ FIXME: If the first file has a package line, those that do not are not caught
 
   (define-values (lines imports) (files->java-lists files (static-inner)))
 
-  (let ([imports (handle-package imports drop-packages)])
+  (let* ([cleaned-imports
+           (if (ignore-imports)
+             (filter (λ (x) (keep-import? x (ignore-imports))) imports)
+             imports)]
+         [imports (handle-package cleaned-imports drop-packages)])
     (output-java lines imports)))
