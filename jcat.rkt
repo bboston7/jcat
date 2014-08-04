@@ -1,4 +1,4 @@
-#!/usr/bin/racket
+#!/bin/env racket
 #lang racket/base
 
 (require racket/list
